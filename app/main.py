@@ -1,6 +1,11 @@
 # Uncomment this to pass the first stage
 import socket
 from threading import Thread
+from os.path import isfile, exists
+from sys import argv
+
+def get_directory_cmd():
+    return argv[2]
 
 def sock_handler(conn, addr):
     print(f"Connected by {addr}")
@@ -23,6 +28,21 @@ def sock_handler(conn, addr):
             userAgent = (data_str.split('User-Agent:')[1].split('\r\n')[0]).strip()
             userAgentBytes = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(userAgent)}\r\n\r\n{userAgent}".encode()
             conn.send(userAgentBytes)
+        elif path.startswith('/files'):
+            filename = data_str.split(' ')[1].split('/')[2]
+            print(filename)
+            directory = get_directory_cmd()
+            if not directory:
+                conn.send(b"HTTP/1.1 404 Not Found\r\n\r\n")
+            else: 
+                file_exists = exists(f"{directory}/{filename}")
+            
+            if not file_exists:
+                conn.send(b"HTTP/1.1 404 Not Found\r\n\r\n")
+            else:
+                file_contents = open(f"{directory}/{filename}", 'r').read()
+                send_string = f"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {len(file_contents)}\r\n\r\n{file_contents}"
+                conn.send(send_string.encode())
         else:
             conn.send(b"HTTP/1.1 404 Not Found\r\n\r\n")
     print(f"Closing Client Connection for {addr}")
