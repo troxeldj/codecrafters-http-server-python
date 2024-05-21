@@ -1,20 +1,13 @@
 # Uncomment this to pass the first stage
 import socket
+from threading import Thread
 
-
-def main():
-    # You can use print statements as follows for debugging, they'll be visible when running tests.
-    print("Logs from your program will appear here!")
-
-    # Uncomment this to pass the first stage
-    #
-    server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
-    (conn, addr) = server_socket.accept()  # wait for client
-    with conn:
-        print(f"Connected by {addr}")
-        # data = bytes object
-        data = conn.recv(1024)
-        # data_str = str
+def sock_handler(conn, addr):
+    print(f"Connected by {addr}")
+    # data = bytes object
+    data = conn.recv(1024)
+    # data_str = str
+    if data:
         data_str = data.decode()
         # METHOD /path <-- We get path
         path = data_str.split(" ")[1]
@@ -32,11 +25,21 @@ def main():
             conn.send(userAgentBytes)
         else:
             conn.send(b"HTTP/1.1 404 Not Found\r\n\r\n")
-        print("Closing Client Connection...")
-        conn.close()
-    print("Closing Server Connection...")
-    server_socket.close()
+    print(f"Closing Client Connection for {addr}")
+    conn.close()
 
-
+def main():
+    # You can use print statements as follows for debugging, they'll be visible when running tests.
+    print("Logs from your program will appear here!")
+    server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
+    print("Server Starting...")
+    while True:
+        try:
+            (conn, addr) = server_socket.accept()  # wait for client
+            Thread(target=sock_handler, args=(conn, addr)).start()
+        except (KeyboardInterrupt):
+            print("Server Quitting...")
+            server_socket.close()
+        
 if __name__ == "__main__":
     main()
