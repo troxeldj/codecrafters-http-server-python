@@ -9,18 +9,25 @@ def main():
     # Uncomment this to pass the first stage
     #
     server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
-    (conn, addr) = server_socket.accept() # wait for client
+    (conn, addr) = server_socket.accept()  # wait for client
     with conn:
-        print(f'Connected by {addr}')
+        print(f"Connected by {addr}")
         data = conn.recv(1024)
         data_str = data.decode()
-        url = data_str.split(' ')[1]
-        if(url != "/"):
-            conn.send(b'HTTP/1.1 404 Not Found\r\n\r\n')
+        path = data_str.split(" ")[1]
+        if path == "/":
+            conn.send(b"HTTP/1.1 200 OK\r\n\r\n")
+        elif path.startswith("/echo"):
+            splitPath = path.split("/")
+            wordToEcho = splitPath[2]
+            if(wordToEcho):
+                echoBytes = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(wordToEcho)}\r\n\r\n{wordToEcho}".encode()
+            conn.send(echoBytes)
         else:
-            conn.send(b'HTTP/1.1 200 OK\r\n\r\n')
+            conn.send(b"HTTP/1.1 404 Not Found\r\n\r\n")
         conn.close()
     server_socket.close()
+
 
 if __name__ == "__main__":
     main()
