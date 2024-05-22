@@ -43,9 +43,21 @@ class Server:
     def _get_accept_encoding(self, data: bytes) -> str:
         # Check if the content encoding is specified
         data_str = data.decode()
-        if 'Accept-Encoding' in data_str:
-            return (data_str.split('Accept-Encoding:')[1]).strip()
-        return None
+        if 'Accept-Encoding' not in data_str:
+            return ""
+        # Check if multiple encodings are specified
+        # If so check if one is in the accepted encodings
+        if ',' in data_str.split('Accept-Encoding:')[1].split('\r\n')[0]:
+            encodings = data_str.split('Accept-Encoding:')[1].split('\r\n')[0].split(',')
+            for encoding in encodings:
+                if encoding.strip() in self.ACCEPTED_ENCODINGS:
+                    return encoding.strip()
+            return ""
+        # If only one encoding is specified
+        encoding = data_str.split('Accept-Encoding:')[1].split('\r\n')[0].strip()
+        if encoding in self.ACCEPTED_ENCODINGS:
+            return encoding
+        return ""
 
     def _sock_handler(self, conn: socket, addr: str):
         self.conn_list.append(conn)
@@ -79,7 +91,7 @@ class Server:
             return
         wordToEcho = path.split("/")[2]
         accept_encoding = self._get_accept_encoding(data)
-        if accept_encoding in self.ACCEPTED_ENCODINGS:
+        if accept_encoding:
             echoBytes = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: {accept_encoding}\r\nContent-Length: {len(wordToEcho)}\r\n\r\n{wordToEcho}".encode(
             )
         else:
