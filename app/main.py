@@ -4,7 +4,6 @@ from threading import Thread
 from os.path import isfile, exists
 from sys import argv
 
-
 class Server:
     def __init__(self):
         self.server_socket = socket.create_server(
@@ -89,10 +88,16 @@ class Server:
         if len(path.split("/")) < 3:
             conn.send(b"HTTP/1.1 404 Not Found\r\n\r\n")
             return
-        wordToEcho = path.split("/")[2]
+        wordToEcho = path.split("/")[2].strip()
         accept_encoding = self._get_accept_encoding(data)
         if accept_encoding:
-            echoBytes = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: {accept_encoding}\r\nContent-Length: {len(wordToEcho)}\r\n\r\n{wordToEcho}".encode(
+            if accept_encoding == 'gzip':
+                import gzip
+                wordToEcho = gzip.compress(wordToEcho.encode())
+                echoBytes = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: {accept_encoding}\r\nContent-Length: {len(wordToEcho)}\r\n\r\n".encode()
+                echoBytes += wordToEcho
+            else:
+                echoBytes = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: {accept_encoding}\r\nContent-Length: {len(wordToEcho)}\r\n\r\n{wordToEcho}".encode(
             )
         else:
             echoBytes = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(wordToEcho)}\r\n\r\n{wordToEcho}".encode(
