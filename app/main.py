@@ -4,62 +4,124 @@ from threading import Thread
 from os.path import isfile, exists
 from sys import argv
 
-def get_directory_cmd():
-    return argv[2]
 
-def sock_handler(conn, addr):
-    print(f"Connected by {addr}")
-    # data = bytes object
-    data = conn.recv(1024)
-    # data_str = str
-    if data:
-        data_str = data.decode()
-        # METHOD /path <-- We get path
-        path = data_str.split(" ")[1]
-        if path == "/":
-            conn.send(b"HTTP/1.1 200 OK\r\n\r\n")
-        elif path.startswith("/echo"):
-            splitPath = path.split("/")
-            wordToEcho = splitPath[2]
-            if(wordToEcho):
-                echoBytes = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(wordToEcho)}\r\n\r\n{wordToEcho}".encode()
+class Server:
+    def __init__(self):
+        self.server_socket = socket.create_server(
+            ("localhost", 4221), reuse_port=True)
+        self.conn_list = list()
+
+    def listen_loop(self):
+        print("Server Starting...")
+        while True:
+            try:
+                (conn, addr) = self.server_socket.accept()  # wait for client
+                Thread(target=self._sock_handler,
+                       args=(conn, addr)).start()
+            except (Exception, KeyboardInterrupt):
+                self._cleanup()
+                return
+
+    def _get_directory_cmd(self) -> str:
+        return argv[2]
+
+    def _get_path(self, data: bytes) -> str:
+        return data.decode().split(" ")[1]
+
+    def _get_user_agent(self, data: bytes) -> str:
+        return (data.decode().split('User-Agent:')[1].split('\r\n')[0]).strip()
+
+    def _get_filename(self, data: bytes) -> str:
+        return "/".join(data.decode().split(' ')[1].split('/')[2:])
+
+    def _get_method(self, data: bytes) -> str:
+        return data.decode().split(' ')[0]
+
+    def _sock_handler(self, conn: socket, addr: str):
+        self.conn_list.append(conn)
+        print(f"Connected by {addr}")
+        # data = bytes object
+        data = conn.recv(1024)
+        # path = str
+        path = self._get_path(data)
+        match(path):
+            case '/':
+                conn.send(b"HTTP/1.1 200 OK\r\n\r\n")
+            case s if s.startswith('/echo'):
+                self._echo_handler(conn, data)
+            case s if s.startswith('/user-agent'):
+                self._user_agent_handler(conn, data)
+            case s if s.startswith('/files') and self._get_method(data) == 'GET':
+                self._files_get_handler(conn, data)
+            case s if s.startswith('/files') and self._get_method(data) == 'POST':
+                self._files_post_handler(conn, data)
+            case _:
+                conn.send(b"HTTP/1.1 404 Not Found\r\n\r\n")
+        print(f"Closing Client Connection for {addr}")
+        self.conn_list.remove(conn)
+        conn.close()
+
+    def _echo_handler(self, conn: socket, data: bytes) -> None:
+        path = self._get_path(data)
+        wordToEcho = path.split("/")[2]
+        if (wordToEcho):
+            echoBytes = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(wordToEcho)}\r\n\r\n{wordToEcho}".encode(
+            )
             conn.send(echoBytes)
-        elif path == "/user-agent":
-            userAgent = (data_str.split('User-Agent:')[1].split('\r\n')[0]).strip()
-            userAgentBytes = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(userAgent)}\r\n\r\n{userAgent}".encode()
-            conn.send(userAgentBytes)
-        elif path.startswith('/files'):
-            filename = data_str.split(' ')[1].split('/')[2]
-            print(filename)
-            directory = get_directory_cmd()
-            if not directory:
-                conn.send(b"HTTP/1.1 404 Not Found\r\n\r\n")
-            else: 
-                file_exists = exists(f"{directory}/{filename}")
-            
-            if not file_exists:
-                conn.send(b"HTTP/1.1 404 Not Found\r\n\r\n")
-            else:
-                file_contents = open(f"{directory}/{filename}", 'r').read()
-                send_string = f"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {len(file_contents)}\r\n\r\n{file_contents}"
-                conn.send(send_string.encode())
-        else:
+
+    def _user_agent_handler(self, conn: socket, data: bytes):
+        userAgent = self._get_user_agent(data)
+        userAgentBytes = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(userAgent)}\r\n\r\n{userAgent}".encode(
+        )
+        conn.send(userAgentBytes)
+
+    def _files_get_handler(self, conn: socket, data: bytes):
+        filename = self._get_filename(data)
+        directory = self._get_directory_cmd()
+        if not directory:
+            print("No directory specified.")
             conn.send(b"HTTP/1.1 404 Not Found\r\n\r\n")
-    print(f"Closing Client Connection for {addr}")
-    conn.close()
+            return
+        file_exists = exists(f"{directory}/{filename}")
+        if not file_exists:
+            conn.send(b"HTTP/1.1 404 Not Found\r\n\r\n")
+            return
+        file = open(f"{directory}/{filename}", 'r')
+        file_contents = file.read()
+        file.close()
+        send_string = f"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {len(file_contents)}\r\n\r\n{file_contents}"
+        conn.send(send_string.encode())
+
+    def _files_post_handler(self, conn: socket, data: bytes):
+        fileName = self._get_filename(data)
+        directory = self._get_directory_cmd()
+        if not directory:
+            print("No directory specified.")
+            conn.send(b"HTTP/1.1 404 Not Found\r\n\r\n")
+            return
+        file_exists = exists(f"{directory}/{fileName}")
+        if file_exists:
+            conn.send(b"HTTP/1.1 409 Conflict\r\n\r\n")
+            return
+        contents_to_file = data.decode().split('\r\n\r\n')[1]
+        file = open(f"{directory}/{fileName}", 'w')
+        file.write(contents_to_file)
+        file.close()
+        conn.send(b"HTTP/1.1 201 Created\r\n\r\n")
+
+    def _cleanup(self):
+        print("Cleaning up...")
+        for conn in self.conn_list:
+            conn.close()
+        self.server_socket.close()
+
 
 def main():
     # You can use print statements as follows for debugging, they'll be visible when running tests.
     print("Logs from your program will appear here!")
-    server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
-    print("Server Starting...")
-    while True:
-        try:
-            (conn, addr) = server_socket.accept()  # wait for client
-            Thread(target=sock_handler, args=(conn, addr)).start()
-        except (KeyboardInterrupt):
-            print("Server Quitting...")
-            server_socket.close()
-        
+    server = Server()
+    server.listen_loop()
+
+
 if __name__ == "__main__":
     main()
