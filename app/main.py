@@ -10,6 +10,7 @@ class Server:
         self.server_socket = socket.create_server(
             ("localhost", 4221), reuse_port=True)
         self.conn_list = list()
+        self.ACCEPTED_ENCODINGS = ['gzip']
 
     def listen_loop(self):
         print("Server Starting...")
@@ -29,6 +30,8 @@ class Server:
         return data.decode().split(" ")[1]
 
     def _get_user_agent(self, data: bytes) -> str:
+        if ('User-Agent' not in data.decode()):
+            return ""
         return (data.decode().split('User-Agent:')[1].split('\r\n')[0]).strip()
 
     def _get_filename(self, data: bytes) -> str:
@@ -36,6 +39,13 @@ class Server:
 
     def _get_method(self, data: bytes) -> str:
         return data.decode().split(' ')[0]
+
+    def _get_accept_encoding(self, data: bytes) -> str:
+        # Check if the content encoding is specified
+        data_str = data.decode()
+        if 'Accept-Encoding' in data_str:
+            return (data_str.split('Accept-Encoding:')[1]).strip()
+        return None
 
     def _sock_handler(self, conn: socket, addr: str):
         self.conn_list.append(conn)
@@ -63,14 +73,25 @@ class Server:
 
     def _echo_handler(self, conn: socket, data: bytes) -> None:
         path = self._get_path(data)
+        # Check if the path has a word to echo
+        if len(path.split("/")) < 3:
+            conn.send(b"HTTP/1.1 404 Not Found\r\n\r\n")
+            return
         wordToEcho = path.split("/")[2]
-        if (wordToEcho):
+        accept_encoding = self._get_accept_encoding(data)
+        if accept_encoding in self.ACCEPTED_ENCODINGS:
+            echoBytes = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: {accept_encoding}\r\nContent-Length: {len(wordToEcho)}\r\n\r\n{wordToEcho}".encode(
+            )
+        else:
             echoBytes = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(wordToEcho)}\r\n\r\n{wordToEcho}".encode(
             )
-            conn.send(echoBytes)
+        conn.send(echoBytes)
 
     def _user_agent_handler(self, conn: socket, data: bytes):
         userAgent = self._get_user_agent(data)
+        if not userAgent:
+            conn.send(b"HTTP/1.1 404 Not Found\r\n\r\n")
+            return
         userAgentBytes = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(userAgent)}\r\n\r\n{userAgent}".encode(
         )
         conn.send(userAgentBytes)
